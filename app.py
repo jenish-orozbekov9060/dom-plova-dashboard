@@ -3,11 +3,20 @@ import pandas as pd
 import plotly.express as px
 
 # ============================================================
-# НАСТРОЙКИ СТРАНИЦЫ И СТИЛИ
+# НАСТРОЙКИ И КОНСТАНТЫ
 # ============================================================
 st.set_page_config(page_title="Пульт Качества (Дом плова)", layout="wide")
 
-# Добавляем CSS для красивых карточек KPI
+# --- ЗДЕСЬ ЛЕГКО МЕНЯТЬ ТАРГЕТЫ (ЦЕЛИ) ---
+TARGET_CANCEL = 0.80  # Цель по Отменам (%)
+TARGET_WRONG = 0.60   # Цель по Вронгам (%)
+TARGET_BF = 0.30      # Цель по Бэдфуду (%)
+
+# Общее количество заказов для расчета процентов 
+# (Вставьте точное число за период из вашего файла, чтобы проценты сходились)
+TOTAL_ORDERS = 360625 
+
+# --- CSS ДЛЯ КРАСИВЫХ КАРТОЧЕК ---
 st.markdown("""
 <style>
     .kpi-card {
@@ -36,11 +45,6 @@ st.caption("Период анализа: 19 октября — 15 ноября 2
 
 file_path = "data.xlsx"
 
-# ВНИМАНИЕ: Для расчета процентов нужен общий пул заказов. 
-# Если в вашем Excel есть общее кол-во заказов, подставьте его переменную сюда. 
-# Сейчас здесь цифра (примерно 360 625), чтобы проценты совпадали с вашим скриншотом.
-TOTAL_ORDERS = 360625 
-
 try:
     raw_df = pd.read_excel(file_path, sheet_name="Сводная", header=None)
 
@@ -67,22 +71,26 @@ try:
                 df_branches[col] = pd.to_numeric(df_branches[col], errors='coerce').fillna(0)
 
         # ============================================================
-        # 1.5. БЛОК KPI (ТАРГЕТЫ И НАГЛЯДНОСТЬ)
+        # 1.5. БЛОК KPI (ТАРГЕТЫ И НАГЛЯДНОСТЬ) - УЛУЧШЕННЫЙ ПОИСК "ИТОГО"
         # ============================================================
-        total_row = df_branches[df_branches['Филиал'] == 'Итого'].iloc[0] if 'Итого' in df_branches['Филиал'].values else None
-        branches_only = df_branches[df_branches['Филиал'] != 'Итого']
+        # Ищем "Итого" с учетом возможных пробелов, чтобы карточки точно появились
+        total_rows = df_branches[df_branches['Филиал'].astype(str).str.strip() == 'Итого']
+        branches_only = df_branches[df_branches['Филиал'].astype(str).str.strip() != 'Итого']
         
-        if total_row is not None:
+        if not total_rows.empty:
+            total_row = total_rows.iloc[0]
+            
+            st.divider()
+            st.subheader("🎯 Выполнение целей (Таргеты)")
             col1, col2, col3 = st.columns(3)
             
             # --- БЛОК 1: ОТМЕНЫ ---
             with col1:
                 cancellations_count = total_row.get('Все отмены', 0)
                 cancellations_pct = (cancellations_count / TOTAL_ORDERS) * 100
-                target_cancel = 0.80
-                dev_cancel = cancellations_pct - target_cancel
+                dev_cancel = cancellations_pct - TARGET_CANCEL
                 
-                color_class = "val-good" if cancellations_pct <= target_cancel else "val-bad"
+                color_class = "val-good" if cancellations_pct <= TARGET_CANCEL else "val-bad"
                 dev_color = "val-good" if dev_cancel <= 0 else "val-bad"
                 dev_sign = "+" if dev_cancel > 0 else ""
                 
@@ -95,7 +103,7 @@ try:
                     <div class="kpi-value {color_class}">{cancellations_pct:.2f}%</div>
                     <div class="kpi-count">{cancellations_count:,.0f} шт.</div>
                     <hr style="margin: 10px 0; border-top: 1px solid #eee;">
-                    <div class="kpi-target">Цель: {target_cancel:.2f}%</div>
+                    <div class="kpi-target">Цель: {TARGET_CANCEL:.2f}%</div>
                     <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_cancel:.2f}%</div>
                     <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
                 </div>
@@ -105,10 +113,9 @@ try:
             with col2:
                 wrong_count = total_row.get('Неверные', 0)
                 wrong_pct = (wrong_count / TOTAL_ORDERS) * 100
-                target_wrong = 0.60
-                dev_wrong = wrong_pct - target_wrong
+                dev_wrong = wrong_pct - TARGET_WRONG
                 
-                color_class = "val-good" if wrong_pct <= target_wrong else "val-bad"
+                color_class = "val-good" if wrong_pct <= TARGET_WRONG else "val-bad"
                 dev_color = "val-good" if dev_wrong <= 0 else "val-bad"
                 dev_sign = "+" if dev_wrong > 0 else ""
                 
@@ -121,7 +128,7 @@ try:
                     <div class="kpi-value {color_class}">{wrong_pct:.2f}%</div>
                     <div class="kpi-count">{wrong_count:,.0f} шт.</div>
                     <hr style="margin: 10px 0; border-top: 1px solid #eee;">
-                    <div class="kpi-target">Цель: {target_wrong:.2f}%</div>
+                    <div class="kpi-target">Цель: {TARGET_WRONG:.2f}%</div>
                     <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_wrong:.2f}%</div>
                     <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
                 </div>
@@ -131,10 +138,9 @@ try:
             with col3:
                 bf_count = total_row.get('Бэдфуд', 0)
                 bf_pct = (bf_count / TOTAL_ORDERS) * 100
-                target_bf = 0.30
-                dev_bf = bf_pct - target_bf
+                dev_bf = bf_pct - TARGET_BF
                 
-                color_class = "val-good" if bf_pct <= target_bf else "val-bad"
+                color_class = "val-good" if bf_pct <= TARGET_BF else "val-bad"
                 dev_color = "val-good" if dev_bf <= 0 else "val-bad"
                 dev_sign = "+" if dev_bf > 0 else ""
                 
@@ -147,11 +153,13 @@ try:
                     <div class="kpi-value {color_class}">{bf_pct:.2f}%</div>
                     <div class="kpi-count">{bf_count:,.0f} шт.</div>
                     <hr style="margin: 10px 0; border-top: 1px solid #eee;">
-                    <div class="kpi-target">Цель: {target_bf:.2f}%</div>
+                    <div class="kpi-target">Цель: {TARGET_BF:.2f}%</div>
                     <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_bf:.2f}%</div>
                     <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
                 </div>
                 """, unsafe_allow_html=True)
+        else:
+            st.warning("Строка 'Итого' не найдена для расчета Таргетов.")
 
         # ============================================================
         # 2. ПОИСК ТАБЛИЦЫ ПО ЧАСАМ
@@ -172,32 +180,35 @@ try:
                 df_hours = df_hours[available_cols_h].dropna(subset=['Час', 'Причина', 'Случаев'])
                 
                 df_hours['Случаев'] = pd.to_numeric(df_hours['Случаев'], errors='coerce').fillna(0)
-                df_hours['Дат'] = pd.to_numeric(df_hours['Дат'], errors='coerce').fillna(0)
-
+                
                 df_hours_clean = df_hours[
                     (~df_hours['Час'].astype(str).str.contains('Все', case=False, na=False)) &
                     (~df_hours['Причина'].astype(str).str.contains('Все', case=False, na=False)) &
                     (df_hours['Час'].astype(str).str.contains(':', na=False))
                 ]
 
-                # --- УМНАЯ ПЛАШКА С АКЦЕНТОМ НА ДНИ (Оставляем) ---
+                # --- ИСПРАВЛЕННАЯ УМНАЯ ПЛАШКА ---
                 if not df_hours_clean.empty and not branches_only.empty:
                     worst_branch = branches_only.loc[branches_only['Заказы с инцидентом'].idxmax(), 'Филиал']
                     worst_data = df_hours_clean[df_hours_clean['Филиал'] == worst_branch]
                     
                     if not worst_data.empty:
                         top_hour = worst_data.groupby('Час')['Случаев'].sum().idxmax()
-                        top_reason = worst_data.groupby('Причина')['Случаев'].sum().idxmax()
                         
-                        worst_case_info = worst_data[(worst_data['Час'] == top_hour) & (worst_data['Причина'] == top_reason)]
-                        days_count = int(worst_case_info['Дат'].max()) if not worst_case_info.empty else 0
+                        # Берем данные конкретно за этот проблемный час
+                        data_for_top_hour = worst_data[worst_data['Час'] == top_hour]
+                        top_reason = data_for_top_hour.groupby('Причина')['Случаев'].sum().idxmax()
+                        
+                        # Считаем, сколько РАЗ (случаев) произошла эта конкретная ошибка в этот час
+                        worst_case_info = data_for_top_hour[data_for_top_hour['Причина'] == top_reason]
+                        cases_count = int(worst_case_info['Случаев'].sum())
                         
                         st.error(f"🚨 **Главная точка боли:** {worst_branch} \n\n"
                                  f"📍 **Пиковый час:** {top_hour} \n\n"
                                  f"⚠️ **Самая частая причина:** {top_reason} \n\n"
-                                 f"🗓️ **Системность:** Эта проблема повторялась в **{days_count} разных дня** (это не разовая случайность).")
+                                 f"📊 **Детали:** За этот час проблема «{top_reason}» возникала **{cases_count} раз(а)**.")
 
-                # --- ОТРИСОВКА ТАБЛИЦЫ И ГРАФИКА ФИЛИАЛОВ ---
+                # --- ОТРИСОВКА ---
                 st.divider()
                 st.subheader("1. Общая картина по филиалам")
                 col1, col2 = st.columns(2)
@@ -227,6 +238,7 @@ try:
                         reasons_df = filtered_hours.groupby('Причина')['Случаев'].sum().reset_index()
                         reasons_df = reasons_df.sort_values(by='Случаев', ascending=True)
                         
+                        # Берем топ-1 причину для текста
                         top_reason = reasons_df.iloc[-1]['Причина']
                         top_reason_count = reasons_df.iloc[-1]['Случаев']
                         
@@ -277,10 +289,10 @@ try:
 
                         # --- БЛОК 2.4: ДЕТАЛЬНАЯ ТАБЛИЦА ---
                         st.markdown("---")
-                        st.subheader("📋 Детальный список (с указанием частоты)")
+                        st.subheader("📋 Детальный список")
                         
-                        display_df = filtered_hours[['Час', 'Метрика', 'Причина', 'Случаев', 'Дат']].copy()
-                        display_df.columns = ['Время', 'Тип инцидента', 'Причина', 'Всего случаев', 'Повторов (дней)']
+                        display_df = filtered_hours[['Час', 'Метрика', 'Причина', 'Случаев']].copy()
+                        display_df.columns = ['Время', 'Тип инцидента', 'Причина', 'Всего случаев']
                         display_df = display_df.sort_values(by='Всего случаев', ascending=False)
                         
                         st.dataframe(display_df, hide_index=True, use_container_width=True)
