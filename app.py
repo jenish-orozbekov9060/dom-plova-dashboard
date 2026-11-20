@@ -13,7 +13,6 @@ TARGET_WRONG = 0.60   # Цель по Вронгам (%)
 TARGET_BF = 0.30      # Цель по Бэдфуду (%)
 
 # Общее количество заказов для расчета процентов 
-# (Вставьте точное число за период из вашего файла, чтобы проценты сходились)
 TOTAL_ORDERS = 360625 
 
 # --- CSS ДЛЯ КРАСИВЫХ КАРТОЧЕК ---
@@ -73,99 +72,100 @@ try:
         # ============================================================
         # 1.5. БЛОК KPI (ТАРГЕТЫ) - УМНЫЙ РАСЧЕТ
         # ============================================================
-        # Ищем "Итого" (игнорируем регистр и пробелы). Если нет - берем всех, кроме "Итого".
         total_mask = df_branches['Филиал'].astype(str).str.strip().str.lower() == 'итого'
         
         if total_mask.any():
-            # Если строка Итого есть, берем данные из нее
             total_row = df_branches[total_mask].iloc[0]
             cancellations_count = total_row.get('Все отмены', 0)
             wrong_count = total_row.get('Неверные', 0)
             bf_count = total_row.get('Бэдфуд', 0)
         else:
-            # Если строки Итого нет, САМИ СЧИТАЕМ СУММУ по всем филиалам
             cancellations_count = df_branches['Все отмены'].sum() if 'Все отмены' in df_branches.columns else 0
             wrong_count = df_branches['Неверные'].sum() if 'Неверные' in df_branches.columns else 0
             bf_count = df_branches['Бэдфуд'].sum() if 'Бэдфуд' in df_branches.columns else 0
 
-        # Отделяем филиалы от строки "Итого" для рейтинга худших точек
         branches_only = df_branches[~total_mask]
 
-        st.divider()
-        st.subheader("🎯 Выполнение целей (Таргеты)")
-        col1, col2, col3 = st.columns(3)
-        
-        # --- БЛОК 1: ОТМЕНЫ ---
-        with col1:
-            cancellations_pct = (cancellations_count / TOTAL_ORDERS) * 100
-            dev_cancel = cancellations_pct - TARGET_CANCEL
-            
-            color_class = "val-good" if cancellations_pct <= TARGET_CANCEL else "val-bad"
-            dev_color = "val-good" if dev_cancel <= 0 else "val-bad"
-            dev_sign = "+" if dev_cancel > 0 else ""
-            
-            top2_cancel = branches_only.nlargest(2, 'Все отмены')[['Филиал', 'Все отмены']]
-            top2_html = "<br>".join([f"{row['Филиал']}: {row['Все отмены']:,.0f} шт." for _, row in top2_cancel.iterrows()])
-            
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">Отмены</div>
-                <div class="kpi-value {color_class}">{cancellations_pct:.2f}%</div>
-                <div class="kpi-count">{cancellations_count:,.0f} шт.</div>
-                <hr style="margin: 10px 0; border-top: 1px solid #eee;">
-                <div class="kpi-target">Цель: {TARGET_CANCEL:.2f}%</div>
-                <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_cancel:.2f}%</div>
-                <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
-            </div>
-            """, unsafe_allow_html=True)
+        # --- ДОБАВЛЯЕМ ТУМБЛЕР ДЛЯ СКРЫТИЯ/ПОКАЗА ---
+        st.write("") # Небольшой отступ
+        show_kpi = st.toggle("👁️ Показать/скрыть блок с целями (Таргеты)", value=True)
 
-        # --- БЛОК 2: ВРОНГИ (Неверные) ---
-        with col2:
-            wrong_pct = (wrong_count / TOTAL_ORDERS) * 100
-            dev_wrong = wrong_pct - TARGET_WRONG
+        if show_kpi:
+            st.divider()
+            st.subheader("🎯 Выполнение целей (Таргеты)")
+            col1, col2, col3 = st.columns(3)
             
-            color_class = "val-good" if wrong_pct <= TARGET_WRONG else "val-bad"
-            dev_color = "val-good" if dev_wrong <= 0 else "val-bad"
-            dev_sign = "+" if dev_wrong > 0 else ""
-            
-            top2_wrong = branches_only.nlargest(2, 'Неверные')[['Филиал', 'Неверные']]
-            top2_html = "<br>".join([f"{row['Филиал']}: {row['Неверные']:,.0f} шт." for _, row in top2_wrong.iterrows()])
-            
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">Вронги (Неверные)</div>
-                <div class="kpi-value {color_class}">{wrong_pct:.2f}%</div>
-                <div class="kpi-count">{wrong_count:,.0f} шт.</div>
-                <hr style="margin: 10px 0; border-top: 1px solid #eee;">
-                <div class="kpi-target">Цель: {TARGET_WRONG:.2f}%</div>
-                <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_wrong:.2f}%</div>
-                <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            # --- БЛОК 1: ОТМЕНЫ ---
+            with col1:
+                cancellations_pct = (cancellations_count / TOTAL_ORDERS) * 100
+                dev_cancel = cancellations_pct - TARGET_CANCEL
+                
+                color_class = "val-good" if cancellations_pct <= TARGET_CANCEL else "val-bad"
+                dev_color = "val-good" if dev_cancel <= 0 else "val-bad"
+                dev_sign = "+" if dev_cancel > 0 else ""
+                
+                top2_cancel = branches_only.nlargest(2, 'Все отмены')[['Филиал', 'Все отмены']]
+                top2_html = "<br>".join([f"{row['Филиал']}: {row['Все отмены']:,.0f} шт." for _, row in top2_cancel.iterrows()])
+                
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-title">Отмены</div>
+                    <div class="kpi-value {color_class}">{cancellations_pct:.2f}%</div>
+                    <div class="kpi-count">{cancellations_count:,.0f} шт.</div>
+                    <hr style="margin: 10px 0; border-top: 1px solid #eee;">
+                    <div class="kpi-target">Цель: {TARGET_CANCEL:.2f}%</div>
+                    <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_cancel:.2f}%</div>
+                    <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
+                </div>
+                """, unsafe_allow_html=True)
 
-        # --- БЛОК 3: БФ (Бэдфуд) ---
-        with col3:
-            bf_pct = (bf_count / TOTAL_ORDERS) * 100
-            dev_bf = bf_pct - TARGET_BF
-            
-            color_class = "val-good" if bf_pct <= TARGET_BF else "val-bad"
-            dev_color = "val-good" if dev_bf <= 0 else "val-bad"
-            dev_sign = "+" if dev_bf > 0 else ""
-            
-            top2_bf = branches_only.nlargest(2, 'Бэдфуд')[['Филиал', 'Бэдфуд']]
-            top2_html = "<br>".join([f"{row['Филиал']}: {row['Бэдфуд']:,.0f} шт." for _, row in top2_bf.iterrows()])
-            
-            st.markdown(f"""
-            <div class="kpi-card">
-                <div class="kpi-title">БФ (Бэдфуд)</div>
-                <div class="kpi-value {color_class}">{bf_pct:.2f}%</div>
-                <div class="kpi-count">{bf_count:,.0f} шт.</div>
-                <hr style="margin: 10px 0; border-top: 1px solid #eee;">
-                <div class="kpi-target">Цель: {TARGET_BF:.2f}%</div>
-                <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_bf:.2f}%</div>
-                <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            # --- БЛОК 2: ВРОНГИ (Неверные) ---
+            with col2:
+                wrong_pct = (wrong_count / TOTAL_ORDERS) * 100
+                dev_wrong = wrong_pct - TARGET_WRONG
+                
+                color_class = "val-good" if wrong_pct <= TARGET_WRONG else "val-bad"
+                dev_color = "val-good" if dev_wrong <= 0 else "val-bad"
+                dev_sign = "+" if dev_wrong > 0 else ""
+                
+                top2_wrong = branches_only.nlargest(2, 'Неверные')[['Филиал', 'Неверные']]
+                top2_html = "<br>".join([f"{row['Филиал']}: {row['Неверные']:,.0f} шт." for _, row in top2_wrong.iterrows()])
+                
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-title">Вронги (Неверные)</div>
+                    <div class="kpi-value {color_class}">{wrong_pct:.2f}%</div>
+                    <div class="kpi-count">{wrong_count:,.0f} шт.</div>
+                    <hr style="margin: 10px 0; border-top: 1px solid #eee;">
+                    <div class="kpi-target">Цель: {TARGET_WRONG:.2f}%</div>
+                    <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_wrong:.2f}%</div>
+                    <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # --- БЛОК 3: БФ (Бэдфуд) ---
+            with col3:
+                bf_pct = (bf_count / TOTAL_ORDERS) * 100
+                dev_bf = bf_pct - TARGET_BF
+                
+                color_class = "val-good" if bf_pct <= TARGET_BF else "val-bad"
+                dev_color = "val-good" if dev_bf <= 0 else "val-bad"
+                dev_sign = "+" if dev_bf > 0 else ""
+                
+                top2_bf = branches_only.nlargest(2, 'Бэдфуд')[['Филиал', 'Бэдфуд']]
+                top2_html = "<br>".join([f"{row['Филиал']}: {row['Бэдфуд']:,.0f} шт." for _, row in top2_bf.iterrows()])
+                
+                st.markdown(f"""
+                <div class="kpi-card">
+                    <div class="kpi-title">БФ (Бэдфуд)</div>
+                    <div class="kpi-value {color_class}">{bf_pct:.2f}%</div>
+                    <div class="kpi-count">{bf_count:,.0f} шт.</div>
+                    <hr style="margin: 10px 0; border-top: 1px solid #eee;">
+                    <div class="kpi-target">Цель: {TARGET_BF:.2f}%</div>
+                    <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_bf:.2f}%</div>
+                    <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
+                </div>
+                """, unsafe_allow_html=True)
 
         # ============================================================
         # 2. ПОИСК ТАБЛИЦЫ ПО ЧАСАМ
@@ -201,11 +201,9 @@ try:
                     if not worst_data.empty:
                         top_hour = worst_data.groupby('Час')['Случаев'].sum().idxmax()
                         
-                        # Берем данные конкретно за этот проблемный час
                         data_for_top_hour = worst_data[worst_data['Час'] == top_hour]
                         top_reason = data_for_top_hour.groupby('Причина')['Случаев'].sum().idxmax()
                         
-                        # СЧИТАЕМ ОБЩЕЕ КОЛИЧЕСТВО ИНЦИДЕНТОВ ЗА ЭТОТ ЧАС
                         total_cases_at_peak = int(data_for_top_hour['Случаев'].sum())
                         
                         st.error(f"🚨 **Главная точка боли:** {worst_branch} \n\n"
