@@ -137,7 +137,7 @@ c0, c1, c2, c3 = st.columns(4)
 c0.metric("Заказов с ID", f"{int(n):,}".replace(",", " "), f"{int(tot['Заказы с инцидентом'])} с инцидентом", delta_color="off")
 card(c1, "Отмены", tot["Партн. отмены"] / n * 100, TARGETS["cancels"], f"{int(tot['Партн. отмены'])} шт.")
 card(c2, "Вронги", tot["Неверные"] / n * 100, TARGETS["wrongs"], f"{int(tot['Неверные'])} шт.")
-card(c3, "БФ (Брак)", tot["Бэдфуд"] / n * 100, TARGETS["bf"], f"{int(tot['Бэдфуд'])} шт.")
+card(c3, "БФ (Бедфуд)", tot["Бэдфуд"] / n * 100, TARGETS["bf"], f"{int(tot['Бэдфуд'])} шт.")
 
 tab_pts, tab_hours, tab_reasons, tab_heat = st.tabs(
     ["📍 Точки", "⏰ Когда и почему", "📋 Все причины", "🗓 День × час"])
@@ -152,7 +152,7 @@ with tab_pts:
                 st.caption(f"Заказов: {int(r['Заказы с ID'])} · с инцидентом: {int(r['Заказы с инцидентом'])}")
                 card(st, "Отмены", r["% Отмен"], TARGETS["cancels"], f"{int(r['Партн. отмены'])} шт.")
                 card(st, "Вронги", r["% Неверных"], TARGETS["wrongs"], f"{int(r['Неверные'])} шт.")
-                card(st, "БФ (Брак)", r["% БФ"], TARGETS["bf"], f"{int(r['Бэдфуд'])} шт.")
+                card(st, "БФ (Бедфуд)", r["% БФ"], TARGETS["bf"], f"{int(r['Бэдфуд'])} шт.")
 
     fig = go.Figure()
     for name, col, color in [("Отмены, %", "% Отмен", "#ef4444"),
