@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 # ("Ди-2 · Качество заказов", "Дом плова · Качество заказов", ...). Менять код под партнёра не нужно.
 PARTNER_NAME = "Партнёр"  # запасное значение
 FILE_PATH = "data.xlsx"
-TARGETS = {"cancels": 0.80, "wrongs": 0.60, "bf": 0.30}
+TARGETS = {"cancels": 0.50, "wrongs": 0.60, "bf": 0.30}
 DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 st.set_page_config(page_title="Пульт Качества", layout="wide")
