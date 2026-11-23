@@ -1,46 +1,36 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 
-# ============================================================
-# НАСТРОЙКИ И КОНСТАНТЫ
-# ============================================================
-st.set_page_config(page_title="Пульт Качества (Дом плова)", layout="wide")
-
-# --- ЗДЕСЬ ЛЕГКО МЕНЯТЬ ТАРГЕТЫ (ЦЕЛИ) ---
-TARGET_CANCEL = 0.80  # Цель по Отменам (%)
-TARGET_WRONG = 0.60   # Цель по Вронгам (%)
-TARGET_BF = 0.30      # Цель по Бэдфуду (%)
-
-# Общее количество заказов для расчета процентов 
-TOTAL_ORDERS = 360625 
-
-# --- CSS ДЛЯ КРАСИВЫХ КАРТОЧЕК ---
-st.markdown("""
-<style>
-    .kpi-card {
-        background-color: #ffffff;
-        border-radius: 10px;
-        padding: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        text-align: center;
-        font-family: sans-serif;
-        color: #333;
-        margin-bottom: 20px;
-    }
-    .kpi-title { font-size: 18px; color: #666; margin-bottom: 10px; font-weight: bold; }
-    .kpi-value { font-size: 42px; font-weight: bold; margin-bottom: 5px; }
-    .kpi-count { font-size: 14px; color: #888; margin-bottom: 15px; }
-    .kpi-target { font-size: 14px; color: #555; margin-bottom: 5px; }
-    .kpi-deviation { font-size: 14px; font-weight: bold; margin-bottom: 15px; }
-    .kpi-details { font-size: 13px; color: #444; background: #f8f9fa; padding: 10px; border-radius: 5px; text-align: left;}
-    .val-good { color: #2E9E4F; } /* Зеленый */
-    .val-bad { color: #D64545; }  /* Красный */
-</style>
-""", unsafe_allow_html=True)
-
-st.title("Пульт Качества (Дом плова)")
+st.set_page_config(page_title="Пульт Качества", layout="wide")
+st.title("Пульт Качества")
 st.caption("Период анализа: 19 октября — 15 ноября 2026 года")
+
+# --- ТАРГЕТЫ (ЦЕЛИ) ---
+TARGETS = {
+    "cancels": 0.80,
+    "wrongs": 0.60,
+    "bf": 0.30
+}
+
+# Функция для отрисовки мини-карточки с таргетом
+def render_metric_card(col, label, value, target):
+    color = "#2E9E4F" if value <= target else "#D64545"
+    diff = value - target
+    diff_text = f"+{diff:.2f}%" if diff > 0 else f"{diff:.2f}%"
+    
+    col.markdown(
+        f"""
+        <div style="padding:10px; border-radius:8px; background-color:#f8f9fa; text-align:center; border: 1px solid #ddd;">
+            <div style="font-size:12px; color:#666; margin-bottom:4px;">{label}</div>
+            <div style="font-size:24px; font-weight:bold; color:{color};">{value:.2f}%</div>
+            <div style="font-size:11px; color:#888;">Цель: ≤ {target}%</div>
+            <div style="font-size:11px; color:{color}; font-weight:bold;">({diff_text})</div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
 file_path = "data.xlsx"
 
@@ -48,7 +38,7 @@ try:
     raw_df = pd.read_excel(file_path, sheet_name="Сводная", header=None)
 
     # ============================================================
-    # 1. ПОИСК ТАБЛИЦЫ ФИЛИАЛОВ
+    # 1. ПОИСК ТАБЛИЦЫ ФИЛИАЛОВ И РАСЧЕТ ПРОЦЕНТОВ
     # ============================================================
     start_row = None
     for i, row in raw_df.iterrows():
@@ -58,255 +48,139 @@ try:
             
     if start_row is not None:
         header_row = start_row - 1
-        df_branches = raw_df.iloc[start_row : start_row + 4].copy()
+        # Берем "Итого" и все филиалы
+        df_branches = raw_df.iloc[start_row : start_row + 10].copy() 
         df_branches.columns = raw_df.iloc[header_row].values
         
-        cols_to_keep = ['Филиал', 'Все отмены', 'Партн. отмены', 'Неверные', 'Бэдфуд', 'Заказы с инцидентом']
+        # Очищаем от пустых строк и оставляем нужные колонки
+        cols_to_keep = ['Филиал', 'Заказы с ID', 'Все отмены', 'Партн. отмены', 'Неверные', 'Бэдфуд']
         available_cols = [c for c in cols_to_keep if c in df_branches.columns]
         df_branches = df_branches[available_cols].dropna(subset=['Филиал'])
+        df_branches = df_branches[df_branches['Филиал'] != ''] # Убираем пустые строки
 
+        # Переводим в числа
         for col in cols_to_keep[1:]:
             if col in df_branches.columns:
                 df_branches[col] = pd.to_numeric(df_branches[col], errors='coerce').fillna(0)
 
-        # ============================================================
-        # 1.5. БЛОК KPI (ТАРГЕТЫ) - УМНЫЙ РАСЧЕТ
-        # ============================================================
-        total_mask = df_branches['Филиал'].astype(str).str.strip().str.lower() == 'итого'
+        # Защита от деления на ноль
+        df_branches['Заказы с ID'] = df_branches['Заказы с ID'].replace(0, 1) 
         
-        if total_mask.any():
-            total_row = df_branches[total_mask].iloc[0]
-            cancellations_count = total_row.get('Все отмены', 0)
-            wrong_count = total_row.get('Неверные', 0)
-            bf_count = total_row.get('Бэдфуд', 0)
+        # Считаем проценты
+        df_branches['% Отмен'] = (df_branches['Партн. отмены'] / df_branches['Заказы с ID']) * 100
+        df_branches['% Неверных'] = (df_branches['Неверные'] / df_branches['Заказы с ID']) * 100
+        df_branches['% БФ'] = (df_branches['Бэдфуд'] / df_branches['Заказы с ID']) * 100
+
+        # ============================================================
+        # 2. ВЕРХНИЙ БЛОК: ОБЩИЙ ТАРГЕТ ПО БРЕНДУ
+        # ============================================================
+        st.subheader("🏢 Общая картина по бренду")
+        total_row = df_branches[df_branches['Филиал'].str.contains('Итого', case=False, na=False)]
+        
+        if not total_row.empty:
+            c1, c2, c3 = st.columns(3)
+            render_metric_card(c1, "Отмены", total_row['% Отмен'].values[0], TARGETS['cancels'])
+            render_metric_card(c2, "Вронги", total_row['% Неверных'].values[0], TARGETS['wrongs'])
+            render_metric_card(c3, "БФ (Брак)", total_row['% БФ'].values[0], TARGETS['bf'])
         else:
-            cancellations_count = df_branches['Все отмены'].sum() if 'Все отмены' in df_branches.columns else 0
-            wrong_count = df_branches['Неверные'].sum() if 'Неверные' in df_branches.columns else 0
-            bf_count = df_branches['Бэдфуд'].sum() if 'Бэдфуд' in df_branches.columns else 0
+            st.warning("Строка 'Итого' не найдена.")
 
-        branches_only = df_branches[~total_mask]
+        st.divider()
 
-        # --- ДОБАВЛЯЕМ ТУМБЛЕР ДЛЯ СКРЫТИЯ/ПОКАЗА ---
-        st.write("") # Небольшой отступ
-        show_kpi = st.toggle("👁️ Показать/скрыть блок с целями (Таргеты)", value=True)
-
-        if show_kpi:
-            st.divider()
-            st.subheader("🎯 Выполнение целей (Таргеты)")
-            col1, col2, col3 = st.columns(3)
+        # ============================================================
+        # 3. БЛОК: ТАРГЕТЫ ПО КАЖДОЙ ТОЧКЕ ОТДЕЛЬНО
+        # ============================================================
+        st.subheader("📍 Детализация по точкам")
+        
+        # Берем только филиалы (исключаем "Итого")
+        df_points = df_branches[~df_branches['Филиал'].str.contains('Итого', case=False, na=False)].copy()
+        
+        if not df_points.empty:
+            # Создаем колонки для каждой точки (максимум 3-4 колонки)
+            cols = st.columns(len(df_points))
             
-            # --- БЛОК 1: ОТМЕНЫ ---
-            with col1:
-                cancellations_pct = (cancellations_count / TOTAL_ORDERS) * 100
-                dev_cancel = cancellations_pct - TARGET_CANCEL
-                
-                color_class = "val-good" if cancellations_pct <= TARGET_CANCEL else "val-bad"
-                dev_color = "val-good" if dev_cancel <= 0 else "val-bad"
-                dev_sign = "+" if dev_cancel > 0 else ""
-                
-                top2_cancel = branches_only.nlargest(2, 'Все отмены')[['Филиал', 'Все отмены']]
-                top2_html = "<br>".join([f"{row['Филиал']}: {row['Все отмены']:,.0f} шт." for _, row in top2_cancel.iterrows()])
-                
-                st.markdown(f"""
-                <div class="kpi-card">
-                    <div class="kpi-title">Отмены</div>
-                    <div class="kpi-value {color_class}">{cancellations_pct:.2f}%</div>
-                    <div class="kpi-count">{cancellations_count:,.0f} шт.</div>
-                    <hr style="margin: 10px 0; border-top: 1px solid #eee;">
-                    <div class="kpi-target">Цель: {TARGET_CANCEL:.2f}%</div>
-                    <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_cancel:.2f}%</div>
-                    <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
-                </div>
-                """, unsafe_allow_html=True)
+            for idx, (index, row) in enumerate(df_points.iterrows()):
+                with cols[idx]:
+                    st.markdown(f"### {row['Филиал']}")
+                    st.markdown("---")
+                    # Мини-карточки для каждой метрики этой точки
+                    render_metric_card(st, "Отмены", row['% Отмен'], TARGETS['cancels'])
+                    st.write("") # Отступ
+                    render_metric_card(st, "Вронги", row['% Неверных'], TARGETS['wrongs'])
+                    st.write("")
+                    render_metric_card(st, "БФ (Брак)", row['% БФ'], TARGETS['bf'])
+        else:
+            st.info("Нет данных по отдельным филиалам.")
 
-            # --- БЛОК 2: ВРОНГИ (Неверные) ---
-            with col2:
-                wrong_pct = (wrong_count / TOTAL_ORDERS) * 100
-                dev_wrong = wrong_pct - TARGET_WRONG
-                
-                color_class = "val-good" if wrong_pct <= TARGET_WRONG else "val-bad"
-                dev_color = "val-good" if dev_wrong <= 0 else "val-bad"
-                dev_sign = "+" if dev_wrong > 0 else ""
-                
-                top2_wrong = branches_only.nlargest(2, 'Неверные')[['Филиал', 'Неверные']]
-                top2_html = "<br>".join([f"{row['Филиал']}: {row['Неверные']:,.0f} шт." for _, row in top2_wrong.iterrows()])
-                
-                st.markdown(f"""
-                <div class="kpi-card">
-                    <div class="kpi-title">Вронги (Неверные)</div>
-                    <div class="kpi-value {color_class}">{wrong_pct:.2f}%</div>
-                    <div class="kpi-count">{wrong_count:,.0f} шт.</div>
-                    <hr style="margin: 10px 0; border-top: 1px solid #eee;">
-                    <div class="kpi-target">Цель: {TARGET_WRONG:.2f}%</div>
-                    <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_wrong:.2f}%</div>
-                    <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-            # --- БЛОК 3: БФ (Бэдфуд) ---
-            with col3:
-                bf_pct = (bf_count / TOTAL_ORDERS) * 100
-                dev_bf = bf_pct - TARGET_BF
-                
-                color_class = "val-good" if bf_pct <= TARGET_BF else "val-bad"
-                dev_color = "val-good" if dev_bf <= 0 else "val-bad"
-                dev_sign = "+" if dev_bf > 0 else ""
-                
-                top2_bf = branches_only.nlargest(2, 'Бэдфуд')[['Филиал', 'Бэдфуд']]
-                top2_html = "<br>".join([f"{row['Филиал']}: {row['Бэдфуд']:,.0f} шт." for _, row in top2_bf.iterrows()])
-                
-                st.markdown(f"""
-                <div class="kpi-card">
-                    <div class="kpi-title">БФ (Бэдфуд)</div>
-                    <div class="kpi-value {color_class}">{bf_pct:.2f}%</div>
-                    <div class="kpi-count">{bf_count:,.0f} шт.</div>
-                    <hr style="margin: 10px 0; border-top: 1px solid #eee;">
-                    <div class="kpi-target">Цель: {TARGET_BF:.2f}%</div>
-                    <div class="kpi-deviation {dev_color}">Отклонение: {dev_sign}{dev_bf:.2f}%</div>
-                    <div class="kpi-details"><b>Худшие точки:</b><br>{top2_html}</div>
-                </div>
-                """, unsafe_allow_html=True)
+        st.divider()
 
         # ============================================================
-        # 2. ПОИСК ТАБЛИЦЫ ПО ЧАСАМ
+        # 4. ГРАФИК С ТАРГЕТАМИ
         # ============================================================
-        try:
-            hour_header_idx = None
-            for i, row in raw_df.iterrows():
-                if 'Час' in row.values and 'Причина' in row.values:
-                    hour_header_idx = i
-                    break
+        st.subheader("📊 Визуальное сравнение с таргетами")
+        
+        fig = go.Figure()
+        fig.add_bar(name="Отмены, %", x=df_points['Филиал'], y=df_points['% Отмен'], 
+                    marker_color='#D64545', text=df_points['% Отмен'].apply(lambda x: f"{x:.2f}%"), textposition="outside")
+        fig.add_bar(name="Вронги, %", x=df_points['Филиал'], y=df_points['% Неверных'], 
+                    marker_color='#E6A700', text=df_points['% Неверных'].apply(lambda x: f"{x:.2f}%"), textposition="outside")
+        fig.add_bar(name="БФ, %", x=df_points['Филиал'], y=df_points['% БФ'], 
+                    marker_color='#2E9E4F', text=df_points['% БФ'].apply(lambda x: f"{x:.2f}%"), textposition="outside")
+        
+        # Линии общих таргетов
+        fig.add_hline(y=TARGETS['cancels'], line_dash="dash", line_color="#D64545", annotation_text=f"Цель отмен {TARGETS['cancels']}%", annotation_position="top left")
+        fig.add_hline(y=TARGETS['wrongs'], line_dash="dash", line_color="#E6A700", annotation_text=f"Цель вронгов {TARGETS['wrongs']}%", annotation_position="top left")
+        fig.add_hline(y=TARGETS['bf'], line_dash="dash", line_color="#2E9E4F", annotation_text=f"Цель БФ {TARGETS['bf']}%", annotation_position="bottom left")
+        
+        fig.update_layout(barmode='group', title="Сравнение филиалов с общими таргетами", yaxis_title="%")
+        st.plotly_chart(fig, use_container_width=True)
 
-            if hour_header_idx is not None:
-                df_hours = raw_df.iloc[hour_header_idx + 1:].copy()
-                df_hours.columns = raw_df.iloc[hour_header_idx].values
-                
-                cols_to_keep_h = ['Филиал', 'Час', 'Метрика', 'Причина', 'Случаев', 'Дат']
-                available_cols_h = [c for c in cols_to_keep_h if c in df_hours.columns]
-                df_hours = df_hours[available_cols_h].dropna(subset=['Час', 'Причина', 'Случаев'])
-                
-                df_hours['Случаев'] = pd.to_numeric(df_hours['Случаев'], errors='coerce').fillna(0)
-                
-                df_hours_clean = df_hours[
-                    (~df_hours['Час'].astype(str).str.contains('Все', case=False, na=False)) &
-                    (~df_hours['Причина'].astype(str).str.contains('Все', case=False, na=False)) &
-                    (df_hours['Час'].astype(str).str.contains(':', na=False))
-                ]
+        st.divider()
 
-                # --- ИСПРАВЛЕННАЯ ПЛАШКА (ПОКАЗЫВАЕТ ОБЩЕЕ КОЛ-ВО ЗА ЧАС) ---
-                if not df_hours_clean.empty and not branches_only.empty:
-                    worst_branch = branches_only.loc[branches_only['Заказы с инцидентом'].idxmax(), 'Филиал']
-                    worst_data = df_hours_clean[df_hours_clean['Филиал'] == worst_branch]
+        # ============================================================
+        # 5. БЛОК ПРИЧИН ПО ЧАСАМ (как было)
+        # ============================================================
+        hour_header_idx = None
+        for i, row in raw_df.iterrows():
+            if 'Час' in row.values and 'Причина' in row.values:
+                hour_header_idx = i
+                break
+
+        if hour_header_idx is not None:
+            df_hours = raw_df.iloc[hour_header_idx + 1:].copy()
+            df_hours.columns = raw_df.iloc[hour_header_idx].values
+            
+            cols_to_keep_h = ['Филиал', 'Час', 'Метрика', 'Причина', 'Случаев', 'Дат']
+            available_cols_h = [c for c in cols_to_keep_h if c in df_hours.columns]
+            df_hours = df_hours[available_cols_h].dropna(subset=['Час', 'Причина', 'Случаев'])
+            
+            df_hours['Случаев'] = pd.to_numeric(df_hours['Случаев'], errors='coerce').fillna(0)
+            df_hours['Дат'] = pd.to_numeric(df_hours['Дат'], errors='coerce').fillna(0)
+
+            df_hours_clean = df_hours[
+                (~df_hours['Час'].astype(str).str.contains('Все', case=False, na=False)) &
+                (~df_hours['Причина'].astype(str).str.contains('Все', case=False, na=False)) &
+                (df_hours['Час'].astype(str).str.contains(':', na=False))
+            ]
+
+            st.subheader("⏰ Когда и почему происходят инциденты?")
+            if not df_hours_clean.empty:
+                branches_in_hours = df_hours_clean['Филиал'].dropna().unique()
+                selected_branch = st.selectbox("Выберите точку для детального анализа:", branches_in_hours)
+                
+                filtered_hours = df_hours_clean[df_hours_clean['Филиал'] == selected_branch]
+                
+                if not filtered_hours.empty:
+                    fig_reasons = px.bar(filtered_hours, x='Час', y='Случаев', color='Причина', 
+                                         title=f"Причины по часам: {selected_branch}",
+                                         labels={'Случаев': 'Количество'})
+                    st.plotly_chart(fig_reasons, use_container_width=True)
                     
-                    if not worst_data.empty:
-                        top_hour = worst_data.groupby('Час')['Случаев'].sum().idxmax()
-                        
-                        data_for_top_hour = worst_data[worst_data['Час'] == top_hour]
-                        top_reason = data_for_top_hour.groupby('Причина')['Случаев'].sum().idxmax()
-                        
-                        total_cases_at_peak = int(data_for_top_hour['Случаев'].sum())
-                        
-                        st.error(f"🚨 **Главная точка боли:** {worst_branch} \n\n"
-                                 f"📍 **Пиковый час:** {top_hour} \n\n"
-                                 f"⚠️ **Самая частая причина:** {top_reason} \n\n"
-                                 f"📊 **Детали:** Всего за этот час произошло **{total_cases_at_peak}** инцидент(ов).")
-
-                # --- ОТРИСОВКА ---
-                st.divider()
-                st.subheader("1. Общая картина по филиалам")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.dataframe(df_branches, hide_index=True, use_container_width=True)
-                with col2:
-                    plot_cols = [c for c in ['Партн. отмены', 'Неверные', 'Бэдфуд'] if c in df_branches.columns]
-                    if plot_cols:
-                        fig_branch = px.bar(df_branches, x='Филиал', y=plot_cols, 
-                                            title="Структура инцидентов", barmode='group',
-                                            color_discrete_sequence=['#D64545', '#E6A700', '#2E9E4F'])
-                        st.plotly_chart(fig_branch, use_container_width=True)
-
-                st.divider()
-                st.subheader("2. Детальный разбор инцидентов по часам")
-                
-                if not df_hours_clean.empty:
-                    branches_in_hours = df_hours_clean['Филиал'].dropna().unique()
-                    selected_branch = st.selectbox("Выберите точку для анализа:", branches_in_hours)
-                    
-                    filtered_hours = df_hours_clean[df_hours_clean['Филиал'] == selected_branch]
-                    
-                    if not filtered_hours.empty:
-                        # --- БЛОК 2.1: ЧТО ПРОИСХОДИТ (ТОП ПРИЧИН) ---
-                        st.markdown(f"#### 🔍 Главные проблемы: {selected_branch}")
-                        
-                        reasons_df = filtered_hours.groupby('Причина')['Случаев'].sum().reset_index()
-                        reasons_df = reasons_df.sort_values(by='Случаев', ascending=True)
-                        
-                        top_reason = reasons_df.iloc[-1]['Причина']
-                        top_reason_count = reasons_df.iloc[-1]['Случаев']
-                        
-                        fig_reasons = px.bar(
-                            reasons_df, 
-                            x='Случаев', 
-                            y='Причина', 
-                            orientation='h',
-                            text='Случаев',
-                            color_discrete_sequence=['#D64545'],
-                            title="Рейтинг причин (от частых к редким)"
-                        )
-                        fig_reasons.update_traces(textposition='outside')
-                        fig_reasons.update_layout(xaxis_title="Количество случаев", yaxis_title="", margin=dict(l=0, r=0, t=30, b=0))
-                        st.plotly_chart(fig_reasons, use_container_width=True)
-
-                        st.markdown("---")
-                        
-                        # --- БЛОК 2.2: КОГДА ПРОИСХОДИТ (ПИКОВЫЕ ЧАСЫ) ---
-                        st.markdown(f"#### ⏰ В какое время происходят инциденты?")
-                        
-                        hours_df = filtered_hours.groupby('Час')['Случаев'].sum().reset_index()
-                        hours_df = hours_df.sort_values(by='Случаев', ascending=False)
-                        
-                        worst_hour = hours_df.iloc[0]['Час']
-                        
-                        fig_hours = px.bar(
-                            hours_df, 
-                            x='Час', 
-                            y='Случаев',
-                            text='Случаев',
-                            title="Нагрузка по инцидентам в течение дня"
-                        )
-                        
-                        colors = ['#D64545' if hour == worst_hour else '#4C78A8' for hour in hours_df['Час']]
-                        fig_hours.update_traces(marker_color=colors, textposition='outside')
-                        fig_hours.update_layout(xaxis_title="Время", yaxis_title="Количество инцидентов", margin=dict(l=0, r=0, t=30, b=0))
-                        
-                        st.plotly_chart(fig_hours, use_container_width=True)
-
-                        # --- БЛОК 2.3: ТЕКСТОВЫЙ ИНСАЙТ ---
-                        st.info(f"""
-                        💡 **Краткий вывод для управления точкой:**
-                        *   Самая частая проблема — **«{top_reason}»** (всего {int(top_reason_count)} случаев).
-                        *   Больше всего инцидентов происходит в период **{worst_hour}**.
-                        *   **Рекомендация:** Усилить контроль на кухне/сборке именно в это время и обратить особое внимание на причину «{top_reason}».
-                        """)
-
-                        # --- БЛОК 2.4: ДЕТАЛЬНАЯ ТАБЛИЦА ---
-                        st.markdown("---")
-                        st.subheader("📋 Детальный список")
-                        
-                        display_df = filtered_hours[['Час', 'Метрика', 'Причина', 'Случаев']].copy()
-                        display_df.columns = ['Время', 'Тип инцидента', 'Причина', 'Всего случаев']
-                        display_df = display_df.sort_values(by='Всего случаев', ascending=False)
-                        
-                        st.dataframe(display_df, hide_index=True, use_container_width=True)
-                    else:
-                        st.warning("Нет детальных данных.")
-                else:
-                    st.warning("Нет данных по часам.")
-            else:
-                st.error("Таблица по часам не найдена в файле.")
-                
-        except Exception as e:
-            st.error(f"Ошибка при чтении таблицы часов: {e}")
+                    st.markdown("---")
+                    st.subheader("📋 Детальный список")
+                    display_df_h = filtered_hours[['Час', 'Метрика', 'Причина', 'Случаев', 'Дат']].copy()
+                    display_df_h.columns = ['Время', 'Тип', 'Причина', 'Кол-во', 'Дней']
+                    st.dataframe(display_df_h, hide_index=True, use_container_width=True)
 
 except Exception as e:
     st.error(f"Ошибка при чтении файла: {e}")
